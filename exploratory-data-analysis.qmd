@@ -5,24 +5,75 @@ format: typst
 
 ### Question 1
 
-Put your question here.
+How is the distribution of the total votes across all constituencies?
 
 ### Answer 1
 
-Put your answer here.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+votes <- read_csv("data/g24_sov_by_g24_svprec_clean.csv")
+
+totvote_summary <- votes |>
+  pull(totvote) |>
+  summary()
+print(totvote_summary)
+
+votes_plot <- votes |>
+  filter(totvote > 0)
+
+ggplot(votes_plot, aes(x = totvote)) +
+  geom_histogram(bins = 50, fill = "skyblue", color = "black") +
+  labs(
+    title = "Distribution of Total Votes Per Precinct",
+    x = "Total Votes",
+    y = "Number of Precincts"
+  ) +
+  theme_minimal()
+
+```
+
+The median was 91 votes, clearly indicating that the voting scale in most individual constituencies was relatively small. However, the mean (2,202 votes) was much higher than the median, and the maximum value reached an astonishing 3,793,980 votes, causing the distribution to exhibit a highly right-skewed pattern.
 
 ### Question 2
 
-Put your question here.
+Which county has the highest turnout rate for the general election?
 
 ### Answer 2
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+county_turnout <- votes |>
+  group_by(fips) |>
+  summarise(total_turnout = sum(totvote, na.rm = TRUE)) |>
+  arrange(desc(total_turnout))
 
-Put your answer here.
+print("Top 5 Counties by Total Voter Turnout")
+county_turnout |>
+  slice_head(n = 5) |>
+  print()
+```
 
 ### Question 3
 
-Put your question here.
+Which electoral district has the smallest percentage difference in the voting results for the US Senate race?
 
 ### Answer 3
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+closest_race_votes <- votes |>
+  mutate(
+    sen_diff = abs(ussdem01 - ussrep01),
+    sen_total = ussdem01 + ussrep01
+  ) |>
+  filter(sen_total > 0) |>
+  mutate(
+    sen_pct_margin = (sen_diff / sen_total) * 100
+  )
 
-Put your answer here.
+q3_closest_race <- closest_race_votes |>
+  arrange(sen_pct_margin) |>
+  slice_head(n = 1) |>
+  select(fips, svprec_key, ussdem01, ussrep01, sen_total, sen_pct_margin)
+
+print("Closest US Senate Race Precinct")
+print(q3_closest_race)
+```
+
+The analysis of the US Senate election reveals a perfect tie in the 06001520810 district. The Democratic candidate in this district received 80 votes, and the Republican candidate also received 80 votes, resulting in a 0% difference in the vote rate. This outcome represents the smallest victory margin discovered in this exploration, which is the closest election. Although the total number of votes in this district is relatively small, only 160, it provides a vivid example at the micro level of how voters are perfectly divided, indicating that at this specific location, the preferences of voters have reached a complete balance, reflecting extreme competitiveness.

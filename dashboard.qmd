@@ -3,3 +3,117 @@ title: Dashboard
 format: dashboard
 ---
 
+```{r,echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(sf)
+library(knitr)
+
+# CRS
+TARGET_CRS_WGS84 <- 4326
+
+# 1
+
+# 2024 Congressional Race
+D_SEATS_2024 <- 44
+R_SEATS_2024 <- 9
+TOTAL_SEATS_2024 <- 53
+D_SEATS_PCT_2024 <- D_SEATS_2024 / TOTAL_SEATS_2024
+MM_SCORE_2024 <- -0.0199
+EG_SCORE_2024 <- 0.2577
+EG_FAVORS_2024 <- "(D)"
+
+# AB 604
+D_SEATS_AB604 <- 47
+R_SEATS_AB604 <- 5
+TOTAL_SEATS_AB604 <- 52 
+D_SEATS_PCT_AB604 <- D_SEATS_AB604 / TOTAL_SEATS_AB604
+MM_SCORE_AB604 <- 0.0259
+EG_SCORE_AB604 <- 0.2002
+EG_FAVORS_AB604 <- "(D)"
+
+# 2
+votes_2024_cng <- read_csv("data/g24_sov_by_g24_svprec_clean.csv") |>
+  mutate(across(starts_with("cng"), ~ as.integer(replace_na(.x, 0)))) |>
+  group_by(cddist) |>
+  summarise(
+    DEM_VOTES = sum(cngdem01, cngdem02, na.rm = TRUE),
+    REP_VOTES = sum(cngrep01, cngrep02, na.rm = TRUE)
+  ) |>
+  mutate(
+    TOTAL_VOTES = DEM_VOTES + REP_VOTES,
+    DEM_SHARE = DEM_VOTES / TOTAL_VOTES
+  ) |>
+  filter(TOTAL_VOTES > 0) |>
+  rename(CDJOIN = cddist)
+
+# 
+ab604_map_data <- read_csv("ab604_results.csv") |>
+  mutate(
+    DEM_SHARE = as.numeric(DEM_SHARE)
+  ) |>
+  rename(DISTRICT_ID = DISTRICT) 
+
+cd_2024_shp <- st_read("data/tl_2024_06_cd119/tl_2024_06_cd119.shp")
+
+cd_2024_plot <- cd_2024_shp |>
+  st_transform(TARGET_CRS_WGS84) |>
+  mutate(CDJOIN = as.integer(CD119FP)) |>
+  left_join(votes_2024_cng, by = "CDJOIN") |>
+  filter(!is.na(DEM_SHARE))
+
+# map
+cd_ab604_shp <- st_read("data/AB604.shp")
+cd_ab604_plot <- cd_ab604_shp |>
+  st_transform(TARGET_CRS_WGS84) |>
+  mutate(DISTRICT_ID = as.integer(DISTRICT))|>
+  left_join(ab604_map_data, by = "DISTRICT_ID")|>
+  filter(!is.na(DEM_SHARE))
+
+plot_map <- function(map_data, title, dem_share_col = "DEM_SHARE") {
+  ggplot(map_data) +
+    geom_sf(aes_string(fill = dem_share_col), color = "gray20", size = 0.1) +
+    scale_fill_gradient2(
+      name = "The share of votes received by the Democratic Party", 
+      low = "red", 
+      mid = "white", 
+      high = "blue", 
+      midpoint = 0.5,
+      limits = c(0, 1),
+      labels = scales::percent
+    ) +
+    labs(title = title) +
+    theme_void() +
+    theme(legend.position = "bottom",
+          plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+}
+
+comparison_data <- tibble(
+  indicator = c(
+    "Proportion of Democratic seats", 
+    "Total seats",
+    "Mean - Median Score", 
+    "efficiency gap", 
+    "The beneficiaries of the efficiency gap"
+  ),
+  `2024 map` = c(
+    sprintf("%.1f%% (%d/%d)", D_SEATS_PCT_2024 * 100, D_SEATS_2024, TOTAL_SEATS_2024),
+    TOTAL_SEATS_2024,
+    sprintf("%.4f", MM_SCORE_2024),
+    sprintf("%.4f", EG_SCORE_2024),
+    EG_FAVORS_2024
+  ),
+  `AB 604 map` = c(
+    sprintf("%.1f%% (%d/%d)", D_SEATS_PCT_AB604 * 100, D_SEATS_AB604, TOTAL_SEATS_AB604),
+    TOTAL_SEATS_AB604,
+    sprintf("%.4f", MM_SCORE_AB604),
+    sprintf("%.4f", EG_SCORE_AB604),
+    EG_FAVORS_AB604
+  )
+)
+
+```
+
+### Methodology
+The data source and cleaning procedure: The data source comes from the total number of votes at the SV Precinct level and the voting results and geometric shapes at the SR Precinct level of the 2024 general election. Regarding the data cleaning process, all ballot columns have been converted to numeric types and missing values have been filled with 0. For spatial analysis, the geometric shapes of SR Precinct have been converted to equal-area projections.
+
+The fairness of electoral district division should not be judged solely based on a single statistic. Two indicators measure the deviation from different perspectives. When they simultaneously show consistent and significant deviations, the inference is more reliable. Moreover, the result of the AB 604 proposed map is calculated using presidential election ballots as proxies. Since the voting rates and candidate effects of presidential elections and congressional elections differ, these indicators are estimates rather than actual results of the congressional elections.

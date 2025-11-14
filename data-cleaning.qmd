@@ -3,3 +3,118 @@ title: Data Cleaning
 format: typst
 ---
 
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+votes <- read_csv("data/g24_sov_by_g24_svprec.csv", guess_max = 200000)
+
+clean_headers <- function(headers) {
+  headers |>
+    str_trim() |>                       
+    str_to_lower() |>                    
+    str_replace_all("[^a-z0-9_\\s]", "") |>  
+    str_replace_all("[-\\s]+", "_")      
+}
+
+names(votes) <- clean_headers(names(votes))
+names(votes)
+
+votes <- votes |>
+  mutate(across(matches("vote|count|tot", ignore.case = TRUE),
+                ~ as.numeric(gsub(",", "", .x))))
+
+
+votes |>
+  summarise(across(everything(), ~ mean(is.na(.x)))) |>
+  pivot_longer(everything(), names_to = "column", values_to = "missing_rate") |>
+  arrange(desc(missing_rate)) |>
+  head(10)
+
+
+if ("precinct_id" %in% names(votes)) {
+  dup <- votes |> count(precinct_id) |> filter(n > 1)
+  if (nrow(dup) > 0) print(head(dup))
+} else if ("srprec_key" %in% names(votes)) {
+  dup <- votes |> count(srprec_key) |> filter(n > 1)
+  if (nrow(dup) > 0) print(head(dup))
+}
+
+vote_cols <- names(votes)[which(names(votes) == "assaip01"):which(names(votes) == "ussrep01")]
+
+votes <- votes |>
+  mutate(across(all_of(vote_cols), ~ as.integer(replace_na(.x, 0))))
+
+write_csv(votes, "data/g24_sov_by_g24_svprec_clean.csv")
+
+```
+
+
+# Part 5: Re-running the 2024 Election
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(sf)
+TARGET_CRS <- 3310
+
+votes_srprec <- read_csv("data/state_g24_sov_data_by_g24_srprec.csv")
+
+srprec_shp <- st_read("data/shapefiles/srprec_state_g24_v01_shp/srprec_state_g24_v01_shp.shp")
+
+vote_cols_sr <- c('PRSDEM01', 'PRSREP01')
+
+votes_srprec <- votes_srprec |>
+  mutate(across(all_of(vote_cols_sr), ~ as.integer(replace_na(.x, 0)))) |>
+  select(SRPREC_KEY, all_of(vote_cols_sr))
+
+
+srprec_gdf <- srprec_shp |>
+  left_join(votes_srprec, by = "SRPREC_KEY") |>
+  filter(if_all(all_of(vote_cols_sr), ~ .x != 0 | is.na(.x) == FALSE))
+
+ab604_gdf <- st_read("data/AB604.shp")
+
+srprec_gdf <- srprec_gdf |>
+  st_transform(crs = TARGET_CRS) |>
+  st_set_precision(1) |>
+  st_make_valid() |>  
+  st_collection_extract("POLYGON") |>
+  mutate(original_area = st_area(geometry))
+
+ab604_gdf <- ab604_gdf |>
+  st_transform(crs = TARGET_CRS)
+
+intersection <- st_intersection(
+  srprec_gdf |>
+     select(SRPREC_KEY, PRSDEM01, PRSREP01, original_area),
+  ab604_gdf |>
+     select(DISTRICT)
+)
+
+intersection <- intersection |>
+  mutate(
+    intersect_area = st_area(geometry),
+    area_ratio = units::drop_units(intersect_area / original_area)
+  ) |>
+  mutate(
+    DEM_ALLOCATED = PRSDEM01 * area_ratio,
+    REP_ALLOCATED = PRSREP01 * area_ratio
+  )
+
+final_results <- intersection |>
+  st_drop_geometry() |>
+  group_by(DISTRICT) |>
+  summarise(
+    DEM_VOTES = sum(DEM_ALLOCATED, na.rm = TRUE),
+    REP_VOTES = sum(REP_ALLOCATED, na.rm = TRUE)
+  ) |>
+  ungroup() |>
+  mutate(
+    TOTAL_VOTES = DEM_VOTES + REP_VOTES,
+    DEM_SHARE = DEM_VOTES / TOTAL_VOTES,
+    DISTRICT = as.integer(DISTRICT)
+  ) |>
+  arrange(DISTRICT)
+
+print(head(final_results))
+write_csv(final_results, "ab604_results.csv")
+
+```
+

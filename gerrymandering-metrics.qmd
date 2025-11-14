@@ -2,10 +2,143 @@
 title: Gerrymandering Metrics
 format: typst
 ---
+### Part 4: Calculating Gerrymandering
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
 
-### 2024 Election Results and the 2024 District Map
+votes <- read_csv("data/g24_sov_by_g24_svprec_clean.csv")
+
+district_results <- votes |>
+  group_by(cddist) |>
+  summarise(
+    V_D = sum(cngdem01, cngdem02, na.rm = TRUE), 
+    V_R = sum(cngrep01, cngrep02, na.rm = TRUE)  
+  ) |>
+  mutate(
+    V_T = V_D + V_R, 
+    S_D = V_D / V_T 
+  ) |>
+  # Filter vote=0
+  filter(V_T > 0) |>
+  ungroup()
+
+# Mean-Median Score
+total_v_t_statewide <- sum(district_results$V_T)
+total_v_d_statewide <- sum(district_results$V_D)
+mean_vote_share <- total_v_d_statewide / total_v_t_statewide
+
+median_vote_share <- median(district_results$S_D, na.rm = TRUE)
+
+mean_median_score <- mean_vote_share - median_vote_share
+
+cat(sprintf("Mean Democratic Vote Share: %.4f\n", mean_vote_share))
+cat(sprintf("Median Democratic Vote Share: %.4f\n", median_vote_share))
+cat(sprintf("Mean-Median Score: %.4f\n", mean_median_score))
+
+# Efficiency Gap
+district_results <- district_results |>
+  mutate(
+    threshold = ceiling(V_T / 2),
+    D_Win = V_D > V_R, 
+    R_Win = V_R > V_D  
+  )
+
+district_results <- district_results |>
+  mutate(
+    W_D = case_when(
+      D_Win == TRUE ~ V_D - threshold,
+      D_Win == FALSE ~ V_D,
+      TRUE ~ 0 
+    ),
+    W_R = case_when(
+      R_Win == TRUE ~ V_R - threshold,
+      R_Win == FALSE ~ V_R,
+      TRUE ~ 0
+    )
+  )
+
+W_D_total <- sum(district_results$W_D)
+W_R_total <- sum(district_results$W_R)
+
+efficiency_gap_abs <- abs(W_D_total - W_R_total) / total_v_t_statewide
+
+efficiency_gap_signed <- (W_R_total - W_D_total) / total_v_t_statewide
+
+gap_favors <- ifelse(W_D_total < W_R_total, "Democratic Party (D)", "Republican Party (R)")
+
+cat(sprintf("Total Wasted Votes - Democratic: %s\n", format(W_D_total, big.mark = ",")))
+cat(sprintf("Total Wasted Votes - Republican: %s\n", format(W_R_total, big.mark = ",")))
+cat(sprintf("Efficiency Gap: %.4f\n", efficiency_gap_abs))
+cat(sprintf("Efficiency Gap: %.4f\n", efficiency_gap_signed))
+
+```
+
+### Part 6: Calculating Gerrymanding Again
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+
+ab604_results <- read_csv("ab604_results.csv") |>
+  
+  mutate(across(c(DEM_VOTES, REP_VOTES, TOTAL_VOTES, DEM_SHARE), as.numeric)) |>
+  
+  filter(TOTAL_VOTES > 0)
+
+total_v_t_statewide_ab604 <- sum(ab604_results$TOTAL_VOTES)
+total_v_d_statewide_ab604 <- sum(ab604_results$DEM_VOTES)
+mean_vote_share_ab604 <- total_v_d_statewide_ab604 / total_v_t_statewide_ab604
+
+# Median Vote Share
+median_vote_share_ab604 <- median(ab604_results$DEM_SHARE, na.rm = TRUE)
+
+#
+mean_median_score_ab604 <- mean_vote_share_ab604 - median_vote_share_ab604
+
+cat(sprintf("Mean Democratic Vote Share: %.4f\n", mean_vote_share_ab604))
+cat(sprintf("Median Democratic Vote Share: %.4f\n", median_vote_share_ab604))
+cat(sprintf("Mean-Median Score: %.4f\n", mean_median_score_ab604))
 
 
+# Efficiency Gap
+ab604_metrics <- ab604_results|>
+  mutate(
+    threshold = ceiling(TOTAL_VOTES / 2),
+    D_Win = DEM_VOTES > REP_VOTES,
+    R_Win = REP_VOTES > DEM_VOTES
+  )
 
-### 2024 Election Results and the proposed 2025 District Map
+ab604_metrics <- ab604_metrics|>
+  mutate(
+    
+    W_D = case_when(
+      D_Win == TRUE ~ DEM_VOTES - threshold,
+      D_Win == FALSE ~ DEM_VOTES,
+      TRUE ~ 0 
+    ),
+    
+    W_R = case_when(
+      R_Win == TRUE ~ REP_VOTES - threshold,
+      R_Win == FALSE ~ REP_VOTES,
+      TRUE ~ 0
+    )
+  )
 
+
+W_D_total_ab604 <- sum(ab604_metrics$W_D)
+W_R_total_ab604 <- sum(ab604_metrics$W_R)
+
+
+efficiency_gap_abs_ab604 <- abs(W_D_total_ab604 - W_R_total_ab604) / total_v_t_statewide_ab604
+
+
+efficiency_gap_signed_ab604 <- (W_R_total_ab604 - W_D_total_ab604) / total_v_t_statewide_ab604
+
+gap_favors_ab604 <- ifelse(W_D_total_ab604 < W_R_total_ab604, "Democratic Party (D)", "Republican Party (R)")
+
+cat(sprintf("Total Wasted Votes - Democratic: %s\n", format(W_D_total_ab604, big.mark = ",")))
+cat(sprintf("Total Wasted Votes - Republican: %s\n", format(W_R_total_ab604, big.mark = ",")))
+cat(sprintf("Efficiency Gap: %.4f\n", efficiency_gap_abs_ab604))
+cat(sprintf("The Efficiency Gap favors the: %s\n", gap_favors_ab604))
+cat(sprintf("Efficiency Gap: %.4f\n", efficiency_gap_signed_ab604))
+
+
+```
